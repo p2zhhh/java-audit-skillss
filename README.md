@@ -1,16 +1,13 @@
-<div align="center">
 
-# 🛡️ Trae Java Security Audit Skills Pack
 
-**为 Trae AI Agent 打造的 Java 代码安全审计专家级技能库**
+# 🛡️ Java Security Audit Skills Pack
 
-!\[License]\(https\://img.shields.io/badge/license-MIT-blue.svg null)
-!\[Python]\(https\://img.shields.io/badge/Python-3.8%2B-brightgreen null)
-!\[Trae]\(https\://img.shields.io/badge/Trae-Agent-purple null)
+**为 AI Agent 打造的 Java 代码安全审计专家级技能库**
+
 
 </div>
 
-这是一套专为 Trae AI Agent 打造的 **Java 代码安全审计专家级技能库**。它结合了传统静态代码扫描（SAST）的严谨性和大语言模型（LLM）的推理能力，旨在帮助开发者和安全研究员快速、精准地发现 Java Web 项目中的潜在漏洞。
+这是一套专为AI Agent 打造的 **Java 代码安全审计专家级技能库**。它结合了传统静态代码扫描（SAST）的严谨性和大语言模型（LLM）的推理能力，旨在帮助开发者和安全研究员快速、精准地发现 Java Web 项目中的潜在漏洞。
 
 ## 🌟 核心特色
 
@@ -133,7 +130,7 @@ pip install tree-sitter tree-sitter-java
 
 ## 🚀 快速开始
 
-将本项目作为你的工作区，或将 `.trae/skills` 目录复制到你想要审计的 Java 项目根目录下。然后在 Trae IDE 的对话框中输入以下任意指令：
+将本项目作为你的工作区，或将 `skills` 目录复制到你想要审计的 Java 项目根目录下。然后IDE导入成功后，在IDE 的对话框中输入以下任意指令：
 
 **全量自动化体检：**
 
@@ -148,3 +145,6 @@ pip install tree-sitter tree-sitter-java
 > *"重点追踪一下* *`UserController.update`* *方法里的* *`avatarPath`* *参数，看看会不会导致路径穿越。"*
 
 **享受 AI 安全专家的 Pair Programming 体验吧！**
+
+**致谢**
+https://github.com/RuoJi6/java-audit-skills
