@@ -1,8 +1,7 @@
-***
-
+---
 name: "java-ai-code-audit-pipeline"
 description: "Trae 专属 Java 代码安全审计全自动流水线。当你需要一键自动执行完整的代码审计（反编译、路由提取、鉴权扫描、组件扫描、漏洞深挖、最终汇总）时调用此技能。它会自动使用 Agent Team 进行多阶段的并发调度和质检。"
-------------------------------------------------------------------------------------
+---
 
 # 🚀 Trae Java Security Audit Automated Pipeline
 
