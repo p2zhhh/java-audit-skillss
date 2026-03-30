@@ -124,7 +124,6 @@
 pip install tree-sitter tree-sitter-java
 ```
 
-*(注意：如果你需要审查无源码的* *`.class`* *或* *`.jar`，请确保系统环境变量中配置了* *`javap`* *或下载了 CFR 反编译工具)*
 
 ***
 
