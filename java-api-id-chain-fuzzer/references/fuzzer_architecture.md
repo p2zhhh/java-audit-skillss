@@ -3,6 +3,12 @@
 本工具的核心目标是：**实现从静态提取到动态漏洞验证（DAST）的无缝衔接。**
 整个自动化探测机制分为三大模块：解析层、编排层与发包探测层。
 
+## 🤖 为什么需要 Agent (LLM)？
+在这个架构中，Python 脚本（如 `id_chain_analyzer.py`）只负责做“确定性”的脏活（提取路由、正则匹配 JSON）。但真实的业务系统极其复杂，**Agent (大语言模型)** 在这里扮演着不可替代的“决策大脑”角色：
+1. **语义级靶点识别**: 脚本只能找出名字带 `id` 的参数。但 Agent 可以阅读源码，判断这个接口到底是不是一个“敏感数据的靶点”。比如一个接口叫 `/api/log/record?userid=123`（只是记录日志），脚本会把它当靶点去发包，但 Agent 会通过分析 Controller 源码，判断出它没有信息泄露风险，从而主动将其剔除。
+2. **复杂 Payload 构造**: 如果一个靶点接口是 `POST` 请求，且需要一个极其复杂的嵌套 JSON Body（如 `{"query": {"filter": {"userId": "1001", "dept": {"deptId": "5"}}}}`），死板的 Python 脚本根本无法构造。Agent 可以读取接口的 DTO 源码，智能地将金库里的 ID 填入正确的位置。
+3. **人类级越权判定**: 很多时候越权失败，后端依然返回 `200 OK`，只是 JSON 里的 `data` 为空，或者返回 `{"code": 4001, "msg": "查询不到数据"}`。传统脚本很难精准区分“越权成功”和“业务异常”。Agent 能够像人类渗透测试工程师一样，**阅读 HTTP 响应体**，根据语义准确判断是否真的泄漏了别人的敏感信息。
+
 ## 1. 架构设计
 
 ### 模块 A: 路由与参数解析 (Parser)
@@ -34,9 +40,10 @@
     {"orderId": "505", "userId": "1001", "merchantId": "88"}
     ```
 
-**步骤 3：参数碰撞与越权验证 (Collision & Validation)**
+**步骤 3：参数碰撞、敏感信息捕获与越权验证 (Collision & Validation)**
 - 遍历所有 Sink 接口。
 - 读取 `id_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, orgId]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
+- **【核心动作：敏感信息捕获】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `mobile`, `email`, `cardid`, `idcard`, `token` 等高价值敏感字段，立刻记录并作为漏洞存在的实锤证据。
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
@@ -159,10 +166,17 @@ for sink in graph["sinks_for_exploitation"]:
             res = requests.get(target_url, headers=headers)
             
             if res.status_code == 200 and str(record[req_ids[0]]) in res.text:
-                print(f"[!!!] VULNERABILITY FOUND (IDOR):")
+                # 简单敏感词正则匹配（供 Agent 或脚本告警使用）
+                sensitive_keys = ['password', 'phone', 'mobile', 'email', 'cardid', 'idcard', 'token']
+                leaked_sensitive_data = {k: v for k, v in res.json().items() if any(sk in k.lower() for sk in sensitive_keys)}
+                
+                print(f"[!!!] VULNERABILITY FOUND (IDOR / Info Leak):")
                 print(f"      Endpoint: {target_url}")
                 print(f"      Payload from Vault: {record}")
-                print(f"      Leaked Info: {res.text[:100]}...")
+                if leaked_sensitive_data:
+                    print(f"      [CRITICAL] Leaked Sensitive Data: {json.dumps(leaked_sensitive_data)}")
+                else:
+                    print(f"      Leaked Info: {res.text[:100]}...")
 ```
 
 ## 3. 落地建议
