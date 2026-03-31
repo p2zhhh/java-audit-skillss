@@ -31,7 +31,8 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
         
     routes = data.get("routes", [])
     
-    # 我们关注的 ID 字段名（可以根据项目实际情况扩展）
+    # 我们关注的 ID 字段名，必须忽略大小写，匹配以 id, ID, Id 结尾的字段
+    # 例如: userid, userID, userId, doc_id, openid
     id_patterns = re.compile(r'([a-zA-Z0-9_]*id)$', re.IGNORECASE)
     
     sources = []  # 潜在的泄漏源 (GET/List 接口)

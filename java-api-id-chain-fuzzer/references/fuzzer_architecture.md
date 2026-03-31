@@ -24,7 +24,7 @@
 - AI 构造 HTTP 请求向 Source 接口发包（如 `/api/v1/users/list` 或 `/api/v1/orders/page`）。
 - **【核心机制：动态 ID 金库与强关联原则】**：
   - **原则：根据一个 ID 查到的其他 ID，说明它们是强关联的，必须放在同一行。**
-  - 解析响应 JSON 时，**绝不硬编码任何 ID 名称**。动态寻找所有以 `id` 结尾的字段（如 `userId`, `openId`, `doc_id`, `orgId`）。
+  - 解析响应 JSON 时，**绝不硬编码任何 ID 名称**。动态寻找所有以 `id` 结尾的字段（如 `userId`, `openId`, `doc_id`, `orgID`，**忽略大小写**）。
   - **同级对象绑定**：只要这些字段出现在同一个 JSON Object 中，就认为它们属于同一个实体。
   - **级联绑定 (Cascading)**：如果用 `userId` 去请求详情接口 `/api/user/detail`，返回了 `deptId` 和 `roleId`，那么这些新查出的 ID 必须和原来的 `userId` **合并到同一行记录中**。
 - 将这些强关联的字典作为一行记录，追加写入到本地持久化文件（如 `id_vault.jsonl`）中。
