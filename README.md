@@ -4,9 +4,9 @@
 
 **为 Trae AI Agent 打造的 Java 代码安全审计专家级技能库**
 
-![License](https://img.shields.io/badge/license-MIT-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.8%2B-brightgreen)
-![Trae](https://img.shields.io/badge/Trae-Agent-purple)
+!\[License]\(https\://img.shields.io/badge/license-MIT-blue.svg null)
+!\[Python]\(https\://img.shields.io/badge/Python-3.8%2B-brightgreen null)
+!\[Trae]\(https\://img.shields.io/badge/Trae-Agent-purple null)
 
 </div>
 
@@ -41,23 +41,20 @@
 ### Phase 2: 全局安全配置审查 (Global Configuration)
 
 *在深入业务代码前，先看“大门”是否关紧。*
-
-3. **`java-auth-audit`**: 检查 Spring Security / Shiro 的拦截器配置，比对 Phase 1 提取的路由地图，找出 0-click（未授权即可访问）的暴露接口。
-4. **特定架构审计** (按需触发): 如果是微服务，调用 `java-spring-cloud-audit`；如果是 Shiro，调用 `java-shiro-audit`。
+3\. **`java-auth-audit`**: 检查 Spring Security / Shiro 的拦截器配置，比对 Phase 1 提取的路由地图，找出 0-click（未授权即可访问）的暴露接口。
+4\. **特定架构审计** (按需触发): 如果是微服务，调用 `java-spring-cloud-audit`；如果是 Shiro，调用 `java-shiro-audit`。
 
 ### Phase 3: 漏洞专精深度扫描 (Deep Scanning)
 
 *带着前两个阶段收集的靶标，开始并发深挖具体代码。*
-
-5. **`java-sql-audit`**: 运行 MyBatis 提取脚本，找出所有 `${}` 拼接点（Sink）。
-6. **`java-business-logic-audit`**: 盯着核心 Controller，排查 IDOR 越权、无锁并发、支付等业务逻辑漏洞。
-7. **其他专精技能**: `java-xxe-audit`, `java-file-audit`, `java-deserialization-audit` 并行扫描。
+5\. **`java-sql-audit`**: 运行 MyBatis 提取脚本，找出所有 `${}` 拼接点（Sink）。
+6\. **`java-business-logic-audit`**: 盯着核心 Controller，排查 IDOR 越权、无锁并发、支付等业务逻辑漏洞。
+7\. **其他专精技能**: `java-xxe-audit`, `java-file-audit`, `java-deserialization-audit` 并行扫描。
 
 ### Phase 4: 链路确诊与防误报 (Validation)
 
 *发现 Sink 后，必须证明其可被利用。*
-
-8. **`java-route-tracer`**: 从 Phase 3 发现的 Sink 逆向追踪到 Phase 1 的 Source（Controller），证明外部数据可达且未被有效净化。严格区分外部可控输入与 Spring 内部对象（如 `HttpServletRequest`, `Model`）。
+8\. **`java-route-tracer`**: 从 Phase 3 发现的 Sink 逆向追踪到 Phase 1 的 Source（Controller），证明外部数据可达且未被有效净化。严格区分外部可控输入与 Spring 内部对象（如 `HttpServletRequest`, `Model`）。
 
 ### Phase 5: 规范化输出 (Reporting)
 
@@ -67,7 +64,7 @@
 
 ## 🛠️ 技能清单 (Available Skills)
 
-本套件由 **1个主控调度技能** + **13个专精子技能** + **1套全局共享规则与工具** 组成。
+本套件由 **1个主控调度技能** + **12个专精子技能** + **1套全局共享规则与工具** 组成。
 
 ### 核心调度器
 
@@ -78,7 +75,6 @@
 | 技能名称                                | 关注领域       | 适用场景 / 触发指令示例                              |
 | :---------------------------------- | :--------- | :----------------------------------------- |
 | 🗺️ **`java-route-mapper`**         | API 接口梳理   | “帮我提取项目里所有的接口和参数”                          |
-| 🔗 **`java-api-id-chain-fuzzer`**   | 参数链条与越权 Fuzzing | “进行白盒 DAST 测试，动态提取接口参数并组合发包，挖掘逻辑越权与信息泄露漏洞” |
 | 💉 **`java-sql-audit`**             | SQL 注入排查   | “检查 MyBatis/Hibernate 里有没有 SQL 拼接”         |
 | 🔑 **`java-auth-audit`**            | 鉴权与越权分析    | “看看 Spring Security 配置有没有绕过风险”             |
 | 💼 **`java-business-logic-audit`**  | 业务逻辑与越权    | “检查这个下单接口有没有并发问题，修改订单有没有越权”                |
@@ -107,15 +103,10 @@
 │       ├── taint_analysis_rules.md         # 强制的数据流追踪与可控性判定准则
 │       ├── audit_reporting_standards.md    # 统一的 Markdown 漏洞报告格式 (要求 POC 与行号)
 │       └── ...
-├── java-ai-code-audit-pipeline/            # ⚙️ 主调度技能与全自动流水线执行器
+├── java-ai-code-audit/                     # 🧠 主调度技能
 ├── java-route-mapper/                      # 🗺️ 路由与参数提取器
 │   └── scripts/
 │       └── spring_route_extractor.py       # Spring 路由自动化提取脚本 (支持 AST 与正则回退)
-├── java-api-id-chain-fuzzer/               # 🔗 参数链条与越权探测器 (SAST+DAST)
-│   ├── scripts/
-│   │   └── id_chain_analyzer.py            # 接口提取与靶点判定脚本
-│   └── references/
-│       └── fuzzer_architecture.md          # 实体绑定与智能伪造发包架构
 ├── java-business-logic-audit/              # 💼 业务逻辑与越权排查
 ├── java-sql-audit/                         # 💉 SQL 注入排查
 │   └── scripts/
@@ -146,18 +137,14 @@ pip install tree-sitter tree-sitter-java
 
 **全量自动化体检：**
 
-> *"请使用 java-ai-code-audit-pipeline 帮我全面审计一下当前项目的安全漏洞。"*
-
-**参数链条越权测试 (新特性)：**
-
-> *"使用 java-api-id-chain-fuzzer 分析一下这些接口，动态提取 userid 等参数并测试平行越权漏洞。"*
+> *"请使用 java-ai-code-audit 帮我全面审计一下当前项目的安全漏洞。"*
 
 **特定业务逻辑排查：**
 
-> *"使用 java-business-logic-audit 检查一下 `OrderController` 里有没有水平越权或者并发扣减库存的漏洞。"*
+> *"使用 java-business-logic-audit 检查一下* *`OrderController`* *里有没有水平越权或者并发扣减库存的漏洞。"*
 
 **专项技术检查：**
 
-> *"重点追踪一下 `UserController.update` 方法里的 `avatarPath` 参数，看看会不会导致路径穿越。"*
+> *"重点追踪一下* *`UserController.update`* *方法里的* *`avatarPath`* *参数，看看会不会导致路径穿越。"*
 
 **享受 AI 安全专家的 Pair Programming 体验吧！**
