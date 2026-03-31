@@ -4,10 +4,6 @@
 
 **为 Trae AI Agent 打造的 Java 代码安全审计专家级技能库**
 
-!\[License]\(https\://img.shields.io/badge/license-MIT-blue.svg null)
-!\[Python]\(https\://img.shields.io/badge/Python-3.8%2B-brightgreen null)
-!\[Trae]\(https\://img.shields.io/badge/Trae-Agent-purple null)
-
 </div>
 
 这是一套专为 Trae AI Agent 打造的 **Java 代码安全审计专家级技能库**。它结合了传统静态代码扫描（SAST）的严谨性和大语言模型（LLM）的推理能力，旨在帮助开发者和安全研究员快速、精准地发现 Java Web 项目中的潜在漏洞。
