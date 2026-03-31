@@ -41,6 +41,7 @@
 **步骤 3：参数碰撞、敏感信息捕获与越权验证 (Collision & Validation)**
 - 遍历所有 Sink 接口。
 - 读取 `parameter_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, order_no]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
+- **【核心动作：全流量日志保存 (Traffic Logging)】**：每一次碰撞发包的完整请求（URL、Payload）和响应（状态码、完整 Body）都会被追加记录到本地的 `fuzzing_traffic.log` 文件中。这不仅是为了给 Agent 提供分析素材，更是为了保留“呈堂证供”，方便安全研究员事后人工复核，防止 AI 漏报。
 - **【核心动作：敏感信息捕获】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `cardid`, `token` 等高价值敏感字段，立刻记录并作为漏洞存在的实锤证据。
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
