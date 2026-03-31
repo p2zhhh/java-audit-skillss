@@ -24,13 +24,12 @@ description: "基于 ID 串联的 API 逻辑漏洞深度审计工具。支持源
    - **【核心要求】**: 必须深入追踪到方法的具体参数定义。例如：`@RequestParam("userId") String userId`，或者封装在 `@RequestBody UserDTO` 中的 `userId` 字段。
    - 记录每个接口的 HTTP 方法（GET/POST 等）和完整的参数结构。
 
-### Phase 2: 危险接口过滤与安全剔除 (Safe Pruning)
+### Phase 2: 危险接口过滤与 Agent 语义级安全校验 (Safe Pruning)
 为了防止在后续可能的动态发包/逻辑推演中破坏系统数据，必须对提取到的路由进行严格的“破坏性动作”过滤。
-1. **HTTP 方法过滤**: 原则上重点关注 `GET` 接口和部分仅用于查询的 `POST` 接口。
-2. **语义黑名单剔除**: 
-   - 如果接口 URL 路径或方法签名中包含以下关键字，**必须无条件剔除**，绝不进行串联尝试：
-     `delete`, `del`, `remove`, `update`, `modify`, `edit`, `reset`, `clear`, `drop`, `insert`, `add`, `create`
-   - 仅保留类似 `get`, `list`, `query`, `search`, `detail`, `info`, `export` 等纯读操作接口。
+1. **脚本基础过滤**: Python 脚本会基于关键字黑名单（`delete`, `del`, `remove`, `update`, `modify`, `edit`, `reset`, `clear`, `drop`, `insert`, `add`, `create`）进行一轮粗筛。
+2. **【关键】Agent 语义确认 (Semantic Safety Check)**: 
+   - 脚本的正则可能会产生误报（例如 `/api/order/getDeliveryStatus` 被误判为 `del`），也可能会产生漏报（例如一个叫 `/api/user/status` 的接口其实是用来封禁用户的）。
+   - **Agent 的职责**：在执行任何 Fuzzing 动作之前，Agent 必须审阅那些被选为“靶点 (Sink)”的接口源码。一旦 Agent 发现该接口的方法体内存在 `mapper.delete()`, `repository.save()`, `updateStatus()` 等修改数据库状态的操作，**必须立刻终止对该接口的 Fuzzing 尝试**，确保业务数据的绝对安全。
 
 ### Phase 3: ID 提取与关系网构建 (ID Chaining & Graphing)
 1. **发现泄露源 (Leakage Sources)**:
@@ -59,23 +58,21 @@ description: "基于 ID 串联的 API 逻辑漏洞深度审计工具。支持源
 - **参数溯源**: 参数必须精准溯源到用户明确可控的传参点（Query String, Form Data, JSON Body），不能是系统自动注入的上下文 ID（如从 Session/Token 解析出的不可篡改 ID）。
 
 ## 📝 报告输出格式示例
-**[H-LOGIC-001] 基于 ID 串联的水平越权与信息泄露**
-- **漏洞类型**: IDOR (Insecure Direct Object Reference) / 信息泄露
-- **是否需要鉴权**: 需要基础登录权限
+**[H-LOGIC-001] 基于 ID 串联的水平越权与高危信息泄露**
+- **漏洞类型**: IDOR / 敏感信息泄露
+- **靶点接口 (Sink)**: `GET /api/v1/user/profile`
 - **攻击链路 (ID Chain)**:
-  1. **Step 1 (获取靶标 ID)**: 通过 `GET /api/v1/public/comments` 接口（无敏感权限），可以从响应的 `CommentDTO` 中批量收集到他人的 `userId`。
-  2. **Step 2 (越权获取详情)**: 将收集到的 `userId` 填入 `GET /api/v1/user/profile?userId={id}`。
-- **代码位置**: 
-  - Source: `CommentController.java` (Line 45)
-  - Sink: `UserProfileController.java` (Line 88) - 此处缺乏 `current_user_id == param_user_id` 的校验。
-- **验证 PoC (联动)**:
-  ```http
-  // 1. 拿 ID
-  GET /api/v1/public/comments HTTP/1.1
-  Host: {{host}}
-  
-  // 2. 遍历越权
-  GET /api/v1/user/profile?userId=10086 HTTP/1.1
-  Host: {{host}}
-  Authorization: Bearer {{my_token}}
-  ```
+  1. **Step 1 (获取靶标 ID)**: 通过无鉴权接口 `GET /api/v1/public/comments` 批量收集到了多个 `userId` (如 `10086`)。
+  2. **Step 2 (越权获取详情)**: 将收集到的 `userId` 填入靶点接口进行查询。
+- **漏洞利用证明 (Proof of Concept)**:
+  - **发包参数**: `GET /api/v1/user/profile?userId=10086`
+  - **泄露的敏感数据**:
+    ```json
+    {
+      "userId": "10086",
+      "password_hash": "e10adc3949ba59abbe56e057f20f883e",
+      "phone": "13812345678",
+      "idcard": "11010519900101XXXX"
+    }
+    ```
+- **修复建议**: 在 `UserProfileController.java` (Line 88) 中增加鉴权拦截，或者剔除 DTO 中的敏感字段。
