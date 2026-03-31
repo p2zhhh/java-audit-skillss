@@ -1,55 +1,47 @@
-# 🚀 API ID Chain Fuzzer 执行架构与伪代码实现思路
+# 🚀 API Parameter Chaining Fuzzer 执行架构与伪代码实现思路
 
 本工具的核心目标是：**实现从静态提取到动态漏洞验证（DAST）的无缝衔接。**
 整个自动化探测机制分为三大模块：解析层、编排层与发包探测层。
 
 ## 🤖 为什么需要 Agent (LLM)？
-在这个架构中，Python 脚本（如 `id_chain_analyzer.py`）只负责做“确定性”的脏活（提取路由、正则匹配 JSON）。但真实的业务系统极其复杂，**Agent (大语言模型)** 在这里扮演着不可替代的“决策大脑”角色：
+在这个架构中，Python 脚本（如 `id_chain_analyzer.py`）只负责做“确定性”的脏活（提取路由、提取所有参数）。但真实的业务系统极其复杂，**Agent (大语言模型)** 在这里扮演着不可替代的“决策大脑”角色：
 
-1. **语义级防破坏校验 (Safety Net)**: 脚本只能通过简单的黑名单（如过滤掉名字里带 `del` 的接口）来防止破坏数据。但这会导致误杀（比如安全的接口 `getDeliveryStatus` 被误杀）或者漏杀（比如一个叫 `api/user/status` 的接口其实是在封禁用户，或者 `approve()`, `process()` 等隐蔽的状态修改操作）。Agent 能够阅读源码，准确判定一个接口是否涉及真实的状态修改，从而决定是否放行测试。
-2. **复杂字段别名映射 (ID Aliasing)**: 脚本只能机械地匹配相同名字的字段。但如果 Source 接口返回的是 `{"document_id": "777"}`，而 Sink 接口需要的参数名叫 `?docId=777`，脚本就会因为名字不匹配而放弃串联。Agent 拥有强大的自然语言理解能力，能够一眼看出 `document_id` 和 `docId` 在业务语义上是等价的，并主动进行映射转换。
-3. **业务逻辑阻断参数的智能处理 (Correlation & Mocking)**: 很多靶点接口除了需要 `userId`，还强制要求传入一些非 ID 类的业务参数才能往下走（例如：`POST /api/order/query` 需要 `{"userId": "1001", "startDate": "2023-01-01", "status": 1}`）。如果只传 `userId`，后端会直接报错。
+1. **语义级防破坏校验 (Safety Net)**: 脚本只能通过简单的黑名单（如过滤掉名字里带 `del` 的接口）来防止破坏数据。但这会导致误杀或漏杀。Agent 能够阅读源码，准确判定一个接口是否涉及真实的状态修改，从而决定是否放行测试。
+2. **复杂参数别名映射 (Parameter Aliasing)**: 脚本只能机械地匹配相同名字的字段。但如果 Source 接口返回的是 `{"document_no": "777"}`，而 Sink 接口需要的参数叫 `?docNum=777`，脚本就会放弃串联。Agent 拥有强大的自然语言理解能力，能够主动进行映射转换。
+3. **业务逻辑阻断参数的智能处理 (Correlation & Mocking)**: 很多靶点接口除了核心参数外，还强制要求传入一些非关键业务参数才能往下走。
    - **Agent 的降维打击**：
-     - **首选策略（真实关联数据回填）**：如果 Agent 在之前请求别的接口（如订单列表）时，不仅拿到了 `userId`，还一同拿到了该订单的 `startDate` 和 `status`，Agent 会**优先将这些真实且强关联的数据如实填入**，保证请求的最高真实度。
-     - **兜底策略（智能伪造）**：如果在其他接口中确实没有获取到这些必填字段，Agent 可以根据参数名（`startDate`）和类型，像人类一样智能“伪造”出合法的前置数据（比如顺手填个昨天的日期，status 填个 1），从而成功“骗”过基础的非空校验，直达越权逻辑。
-4. **复杂 Payload 构造**: 如果一个靶点接口是 `POST` 请求，且需要一个极其复杂的嵌套 JSON Body（如 `{"query": {"filter": {"userId": "1001", "dept": {"deptId": "5"}}}}`），死板的 Python 脚本根本无法构造。Agent 可以读取接口的 DTO 源码，智能地将金库里的 ID 填入正确的位置。
-5. **人类级越权判定 (Discerning 'Fake Success')**: 很多时候越权失败，后端依然返回 `200 OK`，只是 JSON 里的 `data` 为空，或者返回 `{"code": 4001, "msg": "查询不到数据"}`。传统脚本很难精准区分“越权成功”和“业务异常”。Agent 能够像人类渗透测试工程师一样，**阅读 HTTP 响应体**，根据语义准确判断是否真的泄漏了别人的敏感信息。
+     - **首选策略（真实实体数据回填）**：如果 Agent 在之前请求别的接口时，不仅拿到了 `orderId`，还一同拿到了该订单的 `startDate` 和 `status`，Agent 会**优先将这些真实且强关联的实体数据如实填入**，保证请求的最高真实度。
+     - **兜底策略（智能伪造）**：如果在其他接口中确实没有获取到这些必填字段，Agent 可以根据参数名和类型智能“伪造”出合法的前置数据。
 
 ## 1. 架构设计
 
 ### 模块 A: 路由与参数解析 (Parser)
 - 依赖于 `java-route-mapper/scripts/spring_route_extractor.py`。
-- 将生成的 `routes.json` 投递给新编写的 `id_chain_analyzer.py`。
+- 将生成的 `routes.json` 投递给 `id_chain_analyzer.py`。
 - `id_chain_analyzer.py` 负责：
   1. **执行安全剔除**: 拦截所有包含 `delete`, `update`, `remove` 等修改数据库状态的接口。
   2. **构建串联图谱**: 将接口分为两类：
-     - **Source (泄漏源)**: 带有 `list`, `page`, `search` 的 GET/POST 接口，预期返回 JSON 数组中包含目标 ID。
-     - **Sink (受害者/靶点)**: 明确在 URL Params 或 Body 中需要传入类似 `userId`, `orderId` 的接口。
+     - **Source (泄漏源)**: 带有 `list`, `page`, `detail` 的 GET/POST 接口，预期返回 JSON 实体数据。
+     - **Sink (受害者/靶点)**: 明确在 URL Params 或 Body 中需要传入参数的接口。
 
 ### 模块 B: AI 动态发包编排 (Fuzzer Orchestrator)
-这部分由大模型 (AI) 通过执行特定的 Python 脚本或直接利用 HTTP 请求库来实现。
 
-**步骤 1：获取基准权限 (Authentication)**
-- 测试必须在一个普通用户的 Token/Cookie 环境下进行。
+**步骤 1：获取基准环境**
+- 测试必须在一个普通用户的目标 URL 环境下进行。
 
-**步骤 2：信息收集与绑定 (Harvesting & ID Correlation)**
+**步骤 2：信息收集与实体绑定 (Harvesting & Entity Correlation)**
 - AI 构造 HTTP 请求向 Source 接口发包（如 `/api/v1/users/list` 或 `/api/v1/orders/page`）。
-- **【核心机制：动态 ID 金库与强关联原则】**：
-  - **原则：根据一个 ID 查到的其他 ID，说明它们是强关联的，必须放在同一行。**
-  - 解析响应 JSON 时，**绝不硬编码任何 ID 名称**。动态寻找所有以 `id` 结尾的字段（如 `userId`, `openId`, `doc_id`, `orgID`，**忽略大小写**）。
+- **【核心机制：动态实体金库与强关联原则】**：
+  - **原则：根据一个查询动作查到的所有参数，说明它们是强关联的实体，必须放在同一行。**
+  - 解析响应 JSON 时，**绝不局限于 ID**。提取 JSON Object 中的所有关键字段（如 `userId`, `order_no`, `session_token`, `status`）。
   - **同级对象绑定**：只要这些字段出现在同一个 JSON Object 中，就认为它们属于同一个实体。
-  - **级联绑定 (Cascading)**：如果用 `userId` 去请求详情接口 `/api/user/detail`，返回了 `deptId` 和 `roleId`，那么这些新查出的 ID 必须和原来的 `userId` **合并到同一行记录中**。
-- 将这些强关联的字典作为一行记录，追加写入到本地持久化文件（如 `id_vault.jsonl`）中。
-  - 示例 `id_vault.jsonl` 内容：
-    ```json
-    {"userId": "1001", "openId": "wx_abc", "orgId": "99", "deptId": "5"}
-    {"orderId": "505", "userId": "1001", "merchantId": "88"}
-    ```
+  - **级联绑定 (Cascading)**：如果用 `userId` 去请求详情接口，返回了 `deptId` 和 `phone`，那么这些新查出的参数必须和原来的 `userId` **合并到同一行记录中**。
+- 将这些强关联的字典作为一行记录，追加写入到本地持久化文件（如 `parameter_vault.jsonl`）中。
 
 **步骤 3：参数碰撞、敏感信息捕获与越权验证 (Collision & Validation)**
 - 遍历所有 Sink 接口。
-- 读取 `id_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, orgId]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
-- **【核心动作：敏感信息捕获】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `mobile`, `email`, `cardid`, `idcard`, `token` 等高价值敏感字段，立刻记录并作为漏洞存在的实锤证据。
+- 读取 `parameter_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, order_no]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
+- **【核心动作：敏感信息捕获】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `cardid`, `token` 等高价值敏感字段，立刻记录并作为漏洞存在的实锤证据。
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
@@ -108,23 +100,23 @@ for source in graph["sources_for_leakage"]:
                     if isinstance(obj, list):
                         for item in obj:
                             if isinstance(item, dict):
-                                # 动态提取所有以 id 结尾的 key
-                                id_dict = {k: v for k, v in item.items() if str(k).lower().endswith('id')}
+                                # 动态提取实体中的所有有效参数（不再局限于 ID）
+                                # 将同一个字典（JSON Object）中的所有键值对作为一个强关联的实体保存
+                                entity_dict = {k: v for k, v in item.items() if isinstance(v, (str, int, bool))}
                                 # 如果字典不为空，则认为它们是强关联的
-                                if id_dict:
+                                if entity_dict:
                                     # 检查是否能与 memory_vault 中已有的行进行“级联绑定”
-                                    # （比如用 userId 查到了 deptId，那就把 deptId 补充到对应 userId 的那一行）
                                     merged = False
                                     for existing_row in memory_vault:
-                                        # 寻找交集（比如都有 userId=1001）
-                                        common_keys = set(id_dict.keys()) & set(existing_row.keys())
-                                        if common_keys and all(id_dict[k] == existing_row[k] for k in common_keys):
-                                            # 合并新的 ID 到同一行
-                                            existing_row.update(id_dict)
+                                        # 寻找交集（只要有任意一个业务主键/关键参数相同，比如 order_no 相同）
+                                        common_keys = set(entity_dict.keys()) & set(existing_row.keys())
+                                        if common_keys and all(entity_dict[k] == existing_row[k] for k in common_keys):
+                                            # 匹配成功！合并新的参数到同一行实体中
+                                            existing_row.update(entity_dict)
                                             merged = True
                                             break
                                     if not merged:
-                                        memory_vault.append(id_dict)
+                                        memory_vault.append(entity_dict)
                             extract_objects(item)
                     elif isinstance(obj, dict):
                         for k, v in obj.items():

@@ -35,14 +35,10 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
         
     routes = data.get("routes", [])
     
-    # 我们关注的 ID 字段名，必须忽略大小写，匹配以 id, ID, Id 结尾的字段
-    # 例如: userid, userID, userId, doc_id, openid
-    id_patterns = re.compile(r'([a-zA-Z0-9_]*id)$', re.IGNORECASE)
-    
     sources = []  # 潜在的泄漏源 (GET/List 接口)
-    sinks = []    # 潜在的利用点 (需要 ID 的接口)
+    sinks = []    # 潜在的利用点 (需要特定参数的接口)
     
-    print("[*] Filtering and analyzing endpoints for ID Chaining...")
+    print("[*] Filtering and analyzing endpoints for Parameter Chaining...")
     
     for route in routes:
         path = route.get("path", "")
@@ -52,39 +48,32 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
         
         # 记录脚本的危险打标，但不直接剔除，留给 Agent 裁决
         is_dangerous = is_dangerous_endpoint(path, handler)
-            
-        # 分析参数中是否需要 ID
-        needs_id = False
-        required_ids = []
-        for param in parameters:
-            p_name = param.get("name", "")
-            if id_patterns.search(p_name):
-                needs_id = True
-                required_ids.append(p_name)
+        
+        # 分析参数：不再局限于 ID，提取所有该接口需要的必填/关键参数名
+        required_params = [param.get("name", "") for param in parameters if param.get("name", "")]
                 
         # 启发式分类
-        # 如果是一个 GET 接口，且名字里有 list/query/page，很可能是个 Source（能查出一批数据，泄露 ID）
-        is_list_api = any(kw in handler.lower() or kw in path.lower() for kw in ['list', 'query', 'page', 'search', 'all'])
+        # 如果是一个 GET 接口，且名字里有 list/query/page/detail，很可能是个 Source（能查出实体数据）
+        is_source_api = any(kw in handler.lower() or kw in path.lower() for kw in ['list', 'query', 'page', 'search', 'all', 'detail', 'info'])
         
-        if is_list_api and http_method in ['GET', 'POST']:
+        if is_source_api and http_method in ['GET', 'POST']:
             sources.append({
                 "path": path,
                 "method": http_method,
                 "handler": handler,
                 "script_warning_dangerous": is_dangerous,
-                "likely_leaks": "IDs associated with the query"
+                "likely_leaks": "Entity parameters (IDs, tokens, hashes, etc.)"
             })
             
-        # 如果接口明确要求传入 ID，它就是一个 Sink（靶点）
-        # 特别注意：有些接口需要多个 ID（如 userid 和 openid），需要将它们作为一组复合主键处理
-        if needs_id:
+        # 如果接口明确要求传入参数，它就是一个 Sink（靶点）
+        if required_params:
             sinks.append({
                 "path": path,
                 "method": http_method,
                 "handler": handler,
                 "script_warning_dangerous": is_dangerous,
-                "required_ids": required_ids,
-                "is_composite_key": len(required_ids) > 1
+                "required_params": required_params,
+                "is_composite_key": len(required_params) > 1
             })
             
     # 构建串联图谱
@@ -95,7 +84,7 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
         },
         "sources_for_leakage": sources,
         "sinks_for_exploitation": sinks,
-        "fuzzing_strategy": "1. Extract bound ID pairs (e.g., userid & openid) from 'sources_for_leakage' JSON arrays.\n2. Inject bound IDs into 'sinks_for_exploitation' maintaining their relational integrity.\n3. Observe HTTP responses for IDOR or Information Disclosure."
+        "fuzzing_strategy": "1. Extract ALL bound parameters (e.g., userid, token, order_no) from 'sources_for_leakage' JSON arrays.\n2. Inject bound parameter sets into 'sinks_for_exploitation' maintaining their relational integrity.\n3. Observe HTTP responses for IDOR or Information Disclosure."
     }
     
     with open(output_path, 'w', encoding='utf-8') as f:
