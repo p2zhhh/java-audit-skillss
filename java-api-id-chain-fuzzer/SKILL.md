@@ -11,6 +11,7 @@ description: "基于 ID 串联的 API 逻辑漏洞深度审计工具。支持源
 
 ## 🎯 何时调用此 Skill (When to Invoke)
 - 用户要求：“帮我找找越权漏洞”、“有没有 ID 遍历风险”、“审计接口逻辑漏洞”、“测试一下这些 ID 能不能串起来查到别的信息”。
+- 典型指令示例：`使用 java-api-id-chain-fuzzer 审计当前项目，目标发包 URL 是 http://127.0.0.1:8080`
 - 在获取了项目的源代码、`.jar` 或 `.class` 文件，并希望寻找业务逻辑层的越权与信息泄露漏洞时。
 
 ## 🛠️ 核心工作流 (Execution Workflow)
