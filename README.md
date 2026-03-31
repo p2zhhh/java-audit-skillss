@@ -160,4 +160,3 @@ pip install tree-sitter tree-sitter-java
 
 > *"重点追踪一下 `UserController.update` 方法里的 `avatarPath` 参数，看看会不会导致路径穿越。"*
 
-**享受 AI 安全专家的 Pair Programming 体验吧！**
