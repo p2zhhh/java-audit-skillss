@@ -42,7 +42,7 @@
 - 遍历所有 Sink 接口。
 - 读取 `parameter_vault.jsonl`。如果当前 Sink 接口需要传入 `[userId, order_no]`，引擎会遍历金库中的每一行，只要某一行同时拥有这两个键，就把对应的值取出来注入到请求中。
 - **【核心动作：全流量日志保存 (Traffic Logging)】**：每一次碰撞发包的完整请求（URL、Payload）和响应（状态码、完整 Body）都会被追加记录到本地的 `fuzzing_traffic.log` 文件中。这不仅是为了给 Agent 提供分析素材，更是为了保留“呈堂证供”，方便安全研究员事后人工复核，防止 AI 漏报。
-- **【核心动作：敏感信息捕获】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `cardid`, `token` 等高价值敏感字段，立刻记录并作为漏洞存在的实锤证据。
+- **【核心动作：敏感信息捕获与持久化】**：Agent 在收到 HTTP 响应后，必须扫描 JSON 字典中的 Key。如果发现了诸如 `password`, `phone`, `cardid`, `token` 等高价值敏感字段，立刻记录，并**强制追加写入到 `fuzzer_vulnerabilities.md` 漏洞报告文件中**，作为漏洞存在的实锤证据。
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
@@ -63,7 +63,8 @@ parser.add_argument("--graph", default="chain_graph.json", help="Path to the cha
 args = parser.parse_args()
 
 BASE_URL = args.url.rstrip('/')
-VAULT_FILE = "id_vault.jsonl"
+VAULT_FILE = "parameter_vault.jsonl"
+TRAFFIC_LOG_FILE = "fuzzing_traffic.log"
 
 with open(args.graph, "r") as f:
     graph = json.load(f)
@@ -73,6 +74,19 @@ headers = {
     # 模拟普通未登录用户的常见 UA
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
+
+def log_traffic(url, method, payload, status_code, response_text):
+    """将请求与响应完整保存到本地日志文件"""
+    with open(TRAFFIC_LOG_FILE, "a", encoding="utf-8") as lf:
+        log_entry = (
+            f"==========\n"
+            f"REQUEST: {method} {url}\n"
+            f"PAYLOAD: {json.dumps(payload)}\n"
+            f"RESPONSE CODE: {status_code}\n"
+            f"RESPONSE BODY: {response_text}\n"
+            f"==========\n\n"
+        )
+        lf.write(log_entry)
 
 # ==========================================
 # 阶段 1: 动态提取并持久化 ID 金库
@@ -163,6 +177,9 @@ for sink in graph["sinks_for_exploitation"]:
             target_url += f"?{query_str}"
             
             res = requests.get(target_url, headers=headers)
+            
+            # 无论成功失败，将全流量写入日志
+            log_traffic(target_url, "GET", None, res.status_code, res.text)
             
             if res.status_code == 200 and str(record[req_ids[0]]) in res.text:
                 # 简单敏感词正则匹配（供 Agent 或脚本告警使用）
