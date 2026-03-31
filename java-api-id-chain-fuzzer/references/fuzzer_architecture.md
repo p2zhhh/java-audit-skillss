@@ -40,7 +40,7 @@
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
-为了实现工程化和自动化，测试的**基准环境参数必须由用户动态传入**，绝不能硬编码。我们通过命令行参数 (`argparse`) 来接收这些必要信息。
+为了实现工程化和自动化，测试的**基准环境参数必须由用户动态传入**，绝不能硬编码。我们通过命令行参数 (`argparse`) 来接收这些必要信息。因为主要是测试未授权接口，所以只需要提供 URL 即可。
 
 ```python
 import requests
@@ -51,15 +51,11 @@ import argparse
 # ==========================================
 # 动态接收用户输入 (环境配置)
 # ==========================================
-parser = argparse.ArgumentParser(description="API ID Chain Fuzzer")
+parser = argparse.ArgumentParser(description="API ID Chain Fuzzer (Unauthenticated)")
 parser.add_argument("--url", required=True, help="Base URL of the target API (e.g., http://target.com)")
-parser.add_argument("--token", required=True, help="Authorization Token or Cookie for the attacker's session")
-parser.add_argument("--attacker-id", required=True, help="The attacker's own ID to exclude from IDOR testing")
 parser.add_argument("--graph", default="chain_graph.json", help="Path to the chain graph file")
 args = parser.parse_args()
 
-ATTACKER_TOKEN = args.token
-ATTACKER_ID = args.attacker_id # 仅用于在入库时排除自己的数据
 BASE_URL = args.url.rstrip('/')
 VAULT_FILE = "id_vault.jsonl"
 
@@ -67,8 +63,9 @@ with open(args.graph, "r") as f:
     graph = json.load(f)
 
 headers = {
-    "Authorization": ATTACKER_TOKEN,
-    "Content-Type": "application/json"
+    "Content-Type": "application/json",
+    # 模拟普通未登录用户的常见 UA
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 }
 
 # ==========================================
@@ -100,8 +97,8 @@ for source in graph["sources_for_leakage"]:
                             if isinstance(item, dict):
                                 # 动态提取所有以 id 结尾的 key
                                 id_dict = {k: v for k, v in item.items() if str(k).lower().endswith('id')}
-                                # 如果字典不为空，且不全是自己的 ID，则认为它们是强关联的
-                                if id_dict and not all(str(v) == ATTACKER_ID for v in id_dict.values()):
+                                # 如果字典不为空，则认为它们是强关联的
+                                if id_dict:
                                     # 检查是否能与 memory_vault 中已有的行进行“级联绑定”
                                     # （比如用 userId 查到了 deptId，那就把 deptId 补充到对应 userId 的那一行）
                                     merged = False
