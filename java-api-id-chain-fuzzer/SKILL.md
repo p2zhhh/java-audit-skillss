@@ -42,7 +42,13 @@ description: "基于 ID 串联的 API 逻辑漏洞深度审计工具。支持源
 3. **构建串联关系图**:
    - 建立映射关系：`[接口A (Source) 泄漏了 X_ID]  --->  [接口B (Sink) 需要 X_ID 作为入参]`。
 
-### Phase 4: 逻辑推演与漏洞报告 (Fuzzing Logic & Reporting)
+### Phase 4: 运行环境配置 (Runtime Configuration Setup)
+如果需要执行真实的动态 Fuzzing（DAST 模式），必须提示用户提供以下必要的运行时环境参数：
+- `--url`: 目标 API 的基准 URL (Base URL)。
+- `--token`: 攻击者（测试账号）的有效 Authorization Token 或 Cookie。
+- `--attacker-id`: 攻击者自身的 ID（用于在信息收集时排除自己的数据，避免出现“自己越权自己”的假阳性误报）。
+
+### Phase 5: 逻辑推演与漏洞报告 (Fuzzing Logic & Reporting)
 在明确了串联关系后，向用户输出一条完整的“ID 遍历攻击链”：
 1. 指出哪个接口是泄漏源，并展示代码行数。
 2. 指出哪些接口是受害者（Sink），详细列出如何将提取到的 ID 填入 GET/POST 的参数中。

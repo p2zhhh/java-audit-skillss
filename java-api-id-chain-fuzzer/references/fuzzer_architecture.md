@@ -40,17 +40,30 @@
 
 ## 2. 核心 Fuzzer 伪代码 (Python)
 
+为了实现工程化和自动化，测试的**基准环境参数必须由用户动态传入**，绝不能硬编码。我们通过命令行参数 (`argparse`) 来接收这些必要信息。
+
 ```python
 import requests
 import json
 import os
+import argparse
 
-ATTACKER_TOKEN = "Bearer eyJhbG..."
-ATTACKER_ID = "1008" # 仅用于在入库时排除自己的数据
-BASE_URL = "http://target.com"
+# ==========================================
+# 动态接收用户输入 (环境配置)
+# ==========================================
+parser = argparse.ArgumentParser(description="API ID Chain Fuzzer")
+parser.add_argument("--url", required=True, help="Base URL of the target API (e.g., http://target.com)")
+parser.add_argument("--token", required=True, help="Authorization Token or Cookie for the attacker's session")
+parser.add_argument("--attacker-id", required=True, help="The attacker's own ID to exclude from IDOR testing")
+parser.add_argument("--graph", default="chain_graph.json", help="Path to the chain graph file")
+args = parser.parse_args()
+
+ATTACKER_TOKEN = args.token
+ATTACKER_ID = args.attacker_id # 仅用于在入库时排除自己的数据
+BASE_URL = args.url.rstrip('/')
 VAULT_FILE = "id_vault.jsonl"
 
-with open("chain_graph.json", "r") as f:
+with open(args.graph, "r") as f:
     graph = json.load(f)
 
 headers = {
