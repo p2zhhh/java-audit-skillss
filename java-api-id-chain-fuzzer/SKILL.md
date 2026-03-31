@@ -26,10 +26,14 @@ description: "基于 ID 串联的 API 逻辑漏洞深度审计工具。支持源
 
 ### Phase 2: 危险接口过滤与 Agent 语义级安全校验 (Safe Pruning)
 为了防止在后续可能的动态发包/逻辑推演中破坏系统数据，必须对提取到的路由进行严格的“破坏性动作”过滤。
-1. **脚本基础过滤**: Python 脚本会基于关键字黑名单（`delete`, `del`, `remove`, `update`, `modify`, `edit`, `reset`, `clear`, `drop`, `insert`, `add`, `create`）进行一轮粗筛。
+**【优先级规则】：Agent 的语义确认拥有绝对的最高优先级（具有最终否决权和豁免权），脚本仅作为辅助打标工具。**
+
+1. **脚本基础过滤 (Warning Flagger)**: Python 脚本会基于关键字黑名单（`delete`, `del`, `remove`, `update`, `modify`, `edit`, `reset`, `clear`, `drop`, `insert`, `add`, `create`）进行一轮粗筛，并给这些接口打上 `[DANGEROUS]` 标签。
 2. **【关键】Agent 语义确认 (Semantic Safety Check)**: 
-   - 脚本的正则可能会产生误报（例如 `/api/order/getDeliveryStatus` 被误判为 `del`），也可能会产生漏报（例如一个叫 `/api/user/status` 的接口其实是用来封禁用户的）。
-   - **Agent 的职责**：在执行任何 Fuzzing 动作之前，Agent 必须审阅那些被选为“靶点 (Sink)”的接口源码。一旦 Agent 发现该接口的方法体内存在 `mapper.delete()`, `repository.save()`, `updateStatus()` 等修改数据库状态的操作，**必须立刻终止对该接口的 Fuzzing 尝试**，确保业务数据的绝对安全。
+   - 脚本的正则可能会产生误报（例如 `/api/order/getDeliveryStatus` 被误打标为 `del`），也可能会产生漏报（例如一个叫 `/api/user/status` 的接口其实是用来封禁用户的）。
+   - **Agent 的最终裁决**：
+     - **豁免权**：如果脚本标记了某个接口为危险，但 Agent 审阅源码后发现它只是一个纯粹的查询接口（如 `getDeliveryStatus`），Agent **可以推翻脚本的结论，将其恢复为安全的靶点进行测试**。
+     - **否决权**：如果脚本放行了某个接口，但 Agent 审阅源码发现其内部存在 `mapper.delete()`, `repository.save()`, `updateStatus()` 等修改数据库状态的操作，Agent **必须立刻否决，终止对该接口的 Fuzzing 尝试**。
 
 ### Phase 3: ID 提取与关系网构建 (ID Chaining & Graphing)
 1. **发现泄露源 (Leakage Sources)**:

@@ -11,7 +11,11 @@ DANGEROUS_KEYWORDS = {
 }
 
 def is_dangerous_endpoint(path: str, method_name: str) -> bool:
-    """判断接口是否属于危险的写/删操作"""
+    """
+    判断接口是否属于危险的写/删操作。
+    注意：这只是基于关键字的初步打标（Warning Flagger）。
+    最终是否剔除该接口，由 Agent 通过阅读源码进行语义级安全校验（Semantic Safety Check）决定。
+    """
     target = (path + " " + method_name).lower()
     for kw in DANGEROUS_KEYWORDS:
         if kw in target:
@@ -46,9 +50,8 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
         http_method = route.get("http_method", "GET")
         parameters = route.get("parameters", [])
         
-        # 剔除危险操作
-        if is_dangerous_endpoint(path, handler):
-            continue
+        # 记录脚本的危险打标，但不直接剔除，留给 Agent 裁决
+        is_dangerous = is_dangerous_endpoint(path, handler)
             
         # 分析参数中是否需要 ID
         needs_id = False
@@ -68,6 +71,7 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
                 "path": path,
                 "method": http_method,
                 "handler": handler,
+                "script_warning_dangerous": is_dangerous,
                 "likely_leaks": "IDs associated with the query"
             })
             
@@ -78,6 +82,7 @@ def analyze_id_chain(routes_json_path: str, output_path: str):
                 "path": path,
                 "method": http_method,
                 "handler": handler,
+                "script_warning_dangerous": is_dangerous,
                 "required_ids": required_ids,
                 "is_composite_key": len(required_ids) > 1
             })
